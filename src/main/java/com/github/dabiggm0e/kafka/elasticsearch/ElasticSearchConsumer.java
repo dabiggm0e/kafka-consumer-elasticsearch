@@ -8,6 +8,8 @@ import org.apache.http.client.*;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.elasticsearch.action.bulk.BulkRequest;
+import org.elasticsearch.action.bulk.BulkResponse;
 import org.elasticsearch.action.index.IndexRequest;
 import org.elasticsearch.action.index.IndexResponse;
 import org.elasticsearch.client.RequestOptions;
@@ -29,11 +31,10 @@ public class ElasticSearchConsumer {
 
     public static String extractIdFromTweet(String jsonRequest) {
 
-        String id = jsonParser.parse(jsonRequest)
+        return jsonParser.parse(jsonRequest)
                               .getAsJsonObject()
                               .get("id_str")
                               .getAsString();
-        return id;
     }
 
     public static void main(String[] args) throws IOException {
@@ -60,28 +61,41 @@ public class ElasticSearchConsumer {
 
         // poll data
         while (true) {
+
             ConsumerRecords<String, String> records = kafkaConsumer.poll(Duration.ofMillis(duration));
             logger.info("Received " + records.count() + " records.");
 
+            if(records.count() == 0) {
+                continue;
+            }
+
+            BulkRequest bulkRequest = new BulkRequest();
+
             for (ConsumerRecord<String, String> record: records) {
 
-                String jsonIdString = extractIdFromTweet(record.value());
-                IndexRequest indexRequest = new IndexRequest(
-                        "twitter",
-                        "tweets",
-                        jsonIdString // added key for idempotency
-                ).source(record.value(), XContentType.JSON);
-
-                IndexResponse indexResponse = client.index(indexRequest, RequestOptions.DEFAULT);
-                logger.info("JSON id: " + jsonIdString + ". " + indexResponse.getId());
+                String jsonIdString = null;
 
                 try {
-                    Thread.sleep(10);
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
+                    jsonIdString = extractIdFromTweet(record.value());
+
+                    IndexRequest indexRequest = new IndexRequest(
+                            "twitter",
+                            "tweets",
+                            jsonIdString // added key for idempotency
+                    ).source(record.value(), XContentType.JSON);
+
+                    bulkRequest.add(indexRequest);
+                } catch (NullPointerException e) {
+                    logger.warn("Skipping bad data: " + record.value());
                 }
 
+
+
+
+
             }
+            BulkResponse bulkResponse =  client.bulk(bulkRequest, RequestOptions.DEFAULT);
+
             logger.info("Committing the offsets...");
             kafkaConsumer.commitSync();
             logger.info("Offsets have been committed.");
