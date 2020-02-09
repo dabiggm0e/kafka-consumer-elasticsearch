@@ -28,9 +28,11 @@ public class ElasticSearchConsumer {
     static Logger logger = LoggerFactory.getLogger(ElasticSearchConsumer.class.getName());
 
     public static String extractIdFromTweet(String jsonRequest) {
-        String id = "";
-     /*   jsonParser.parse(jsonRequest)
-                .getAsString().*/
+
+        String id = jsonParser.parse(jsonRequest)
+                              .getAsJsonObject()
+                              .get("id_str")
+                              .getAsString();
         return id;
     }
 
@@ -54,7 +56,7 @@ public class ElasticSearchConsumer {
         RestClientBuilder builder = RestClient.builder(new HttpHost(hostname, 9200, "http"));
         RestHighLevelClient client = new RestHighLevelClient(builder);
 
-        String jsonString = "{ \"foo\": \"bar\" }";
+
 
         // poll data
         while (true) {
@@ -63,15 +65,23 @@ public class ElasticSearchConsumer {
                 logger.info("Topic: " + record.topic() + ", Key: " + record.key() + ", Value: " + record.value());
                 logger.info("Partition: " + record.partition() + ", Offset: " + record.offset());
 
+                String jsonIdString = extractIdFromTweet(record.value());
                 IndexRequest indexRequest = new IndexRequest(
                         "twitter",
-                        "tweets"
+                        "tweets",
+                        jsonIdString // added key for idempotency
                 ).source(record.value(), XContentType.JSON);
 
                 IndexResponse indexResponse = client.index(indexRequest, RequestOptions.DEFAULT);
                 String id = indexResponse.getId();
 
-                logger.info(id);
+                logger.info("JSON id: " + jsonIdString + ". " + id);
+
+                try {
+                    Thread.sleep(500);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
 
             }
         }
