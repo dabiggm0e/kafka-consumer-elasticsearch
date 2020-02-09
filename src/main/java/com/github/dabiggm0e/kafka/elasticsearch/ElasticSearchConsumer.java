@@ -61,9 +61,9 @@ public class ElasticSearchConsumer {
         // poll data
         while (true) {
             ConsumerRecords<String, String> records = kafkaConsumer.poll(Duration.ofMillis(duration));
+            logger.info("Received " + records.count() + " records.");
+
             for (ConsumerRecord<String, String> record: records) {
-                logger.info("Topic: " + record.topic() + ", Key: " + record.key() + ", Value: " + record.value());
-                logger.info("Partition: " + record.partition() + ", Offset: " + record.offset());
 
                 String jsonIdString = extractIdFromTweet(record.value());
                 IndexRequest indexRequest = new IndexRequest(
@@ -73,16 +73,23 @@ public class ElasticSearchConsumer {
                 ).source(record.value(), XContentType.JSON);
 
                 IndexResponse indexResponse = client.index(indexRequest, RequestOptions.DEFAULT);
-                String id = indexResponse.getId();
-
-                logger.info("JSON id: " + jsonIdString + ". " + id);
+                logger.info("JSON id: " + jsonIdString + ". " + indexResponse.getId());
 
                 try {
-                    Thread.sleep(500);
+                    Thread.sleep(10);
                 } catch (InterruptedException e) {
                     e.printStackTrace();
                 }
 
+            }
+            logger.info("Committing the offsets...");
+            kafkaConsumer.commitSync();
+            logger.info("Offsets have been committed.");
+
+            try {
+                Thread.sleep(1500);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
             }
         }
 
